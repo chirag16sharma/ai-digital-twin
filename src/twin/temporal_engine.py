@@ -1,52 +1,86 @@
+"""
+twin/temporal_engine.py
+
+Responsible for temporal reasoning over the rainfall dataset: detecting
+the time coordinate, reporting the available date range, and
+retrieving rainfall data for a specific date or date range. This is
+the temporal counterpart to SpatialEngine — where SpatialEngine
+answers "where," TemporalEngine answers "when."
+"""
+
+from typing import List
+
 import numpy as np
+import xarray as xr
 
 
 class TemporalEngine:
     """
-    Temporal Engine for the AI Digital Twin.
+    Handles temporal queries over an IMD rainfall dataset.
 
-    Responsibilities:
-    - Detect time coordinates.
-    - Display available dates.
-    - Retrieve rainfall for a specific date.
-    - Retrieve rainfall for a date range.
+    Single Responsibility:
+        Time-based reasoning only — time coordinate detection, date
+        range reporting, and date-based rainfall retrieval. Location
+        is out of scope here; this class always queries rainfall
+        across the *entire spatial grid* for a given date, not for a
+        specific point (that combination is QueryEngine's job).
+
+    Attributes:
+        dataset (xr.Dataset): The AI-ready rainfall dataset.
+        time_name (str): The actual time coordinate name found in
+            this dataset (e.g. "TIME" or "time").
+        times (np.ndarray): All timestamp values in the dataset,
+            cached at construction time.
     """
 
-    def __init__(self, dataset):
+    def __init__(self, dataset: xr.Dataset) -> None:
         """
-        Initialize the Temporal Engine.
+        Initialize the Temporal Engine and auto-detect the time
+        coordinate.
 
-        Parameters
-        ----------
-        dataset : xarray.Dataset
-            AI-ready rainfall dataset.
+        Args:
+            dataset: AI-ready rainfall dataset, expected to contain a
+                time coordinate under one of several possible naming
+                conventions (see _find_coordinate).
+
+        Raises:
+            ValueError: If no recognized time coordinate name is
+                found in the dataset.
         """
-
-        self.dataset = dataset
+        self.dataset: xr.Dataset = dataset
 
         # Automatically detect the time coordinate
-        self.time_name = self._find_coordinate(
+        self.time_name: str = self._find_coordinate(
             ["TIME", "time"]
         )
 
         # Store all timestamps
-        self.times = self.dataset[self.time_name].values
+        self.times: np.ndarray = self.dataset[self.time_name].values
 
-    def _find_coordinate(self, possible_names):
+    def _find_coordinate(self, possible_names: List[str]) -> str:
         """
-        Find the first matching coordinate name.
+        Find which of several possible coordinate names is actually
+        present in the dataset.
 
-        Parameters
-        ----------
-        possible_names : list
-            Possible coordinate names.
+        NOTE: This method is currently duplicated verbatim in
+        SpatialEngine._find_coordinate(). Flagged in the Day 1 code
+        review as duplicated logic — planned to be extracted into a
+        shared utility (e.g. src/utils/coordinates.py) so both
+        engines call one implementation instead of maintaining two
+        copies that could silently drift apart.
 
-        Returns
-        -------
-        str
-            Matching coordinate name.
+        Args:
+            possible_names: Candidate coordinate names to check, in
+                priority order. The first match found is returned.
+
+        Returns:
+            str: The matching coordinate name, exactly as it appears
+                in self.dataset.coords.
+
+        Raises:
+            ValueError: If none of possible_names exist in the
+                dataset's coordinates.
         """
-
         for name in possible_names:
             if name in self.dataset.coords:
                 return name
@@ -55,51 +89,63 @@ class TemporalEngine:
             f"None of the coordinate names {possible_names} found."
         )
 
-    def available_dates(self):
+    def available_dates(self) -> None:
         """
-        Display the available dates in the dataset.
-        """
+        Print the available date range and total day count for this
+        dataset.
 
+        Returns:
+            None. Console output only.
+        """
         print(f"First Date : {self.first_date()}")
         print(f"Last Date  : {self.last_date()}")
         print(f"Total Days : {self.number_of_days()}")
 
-    def first_date(self):
+    def first_date(self) -> np.datetime64:
         """
-        Return the first available date.
-        """
+        Return the earliest date present in the dataset.
 
+        Returns:
+            np.datetime64: The first timestamp in the TIME coordinate.
+        """
         return self.times[0]
 
-    def last_date(self):
+    def last_date(self) -> np.datetime64:
         """
-        Return the last available date.
-        """
+        Return the latest date present in the dataset.
 
+        Returns:
+            np.datetime64: The last timestamp in the TIME coordinate.
+        """
         return self.times[-1]
 
-    def number_of_days(self):
+    def number_of_days(self) -> int:
         """
-        Return the total number of days.
-        """
+        Return the total number of time steps (days) in the dataset.
 
+        Returns:
+            int: Count of entries in the TIME coordinate.
+        """
         return len(self.times)
 
-    def get_date(self, date):
+    def get_date(self, date: str) -> xr.DataArray:
         """
-        Return rainfall data for one date.
+        Return rainfall data across the full spatial grid for one date.
 
-        Parameters
-        ----------
-        date : str
-            Example: "2025-07-15"
+        Args:
+            date: Date string in a format xarray's .sel() can parse
+                against the TIME coordinate, e.g. "2025-07-15".
 
-        Returns
-        -------
-        xarray.DataArray
+        Returns:
+            xr.DataArray: Rainfall values for every grid point on the
+                given date (i.e. still indexed by latitude/longitude,
+                just fixed at this one date).
+
+        Raises:
+            KeyError: If "RAINFALL" is missing, or if `date` does not
+                exist in the dataset's TIME coordinate.
         """
-
-        rainfall = self.dataset["RAINFALL"].sel(
+        rainfall: xr.DataArray = self.dataset["RAINFALL"].sel(
             {
                 self.time_name: date
             }
@@ -107,21 +153,25 @@ class TemporalEngine:
 
         return rainfall
 
-    def get_date_range(self, start_date, end_date):
+    def get_date_range(self, start_date: str, end_date: str) -> xr.DataArray:
         """
-        Return rainfall data between two dates.
+        Return rainfall data across the full spatial grid for a range
+        of dates (inclusive).
 
-        Parameters
-        ----------
-        start_date : str
-        end_date : str
+        Args:
+            start_date: Start of the range, e.g. "2025-07-01".
+            end_date: End of the range, e.g. "2025-07-31". Inclusive,
+                per xarray's slice() behavior with label-based
+                indexing.
 
-        Returns
-        -------
-        xarray.DataArray
+        Returns:
+            xr.DataArray: Rainfall values for every grid point across
+                all time steps in [start_date, end_date].
+
+        Raises:
+            KeyError: If "RAINFALL" is not present in the dataset.
         """
-
-        rainfall = self.dataset["RAINFALL"].sel(
+        rainfall: xr.DataArray = self.dataset["RAINFALL"].sel(
             {
                 self.time_name: slice(start_date, end_date)
             }
