@@ -1,15 +1,20 @@
 """
 ingestion/imd_loader.py
 
-Responsible for loading raw IMD rainfall datasets from disk into memory
-as xarray Datasets. This is the entry point of the data pipeline — every
-other component (DataExplorer, DataCleaner, FeatureEngineer, ...) operates
-on the Dataset this module produces.
+Responsible for loading raw IMD rainfall datasets from disk into
+memory as xarray Datasets. This is the entry point of the data
+pipeline — every other component (DataExplorer, DataCleaner,
+FeatureEngineer, ...) operates on the Dataset this module produces.
 """
 
 from pathlib import Path
 
 import xarray as xr
+
+from src.exceptions import DatasetNotFoundError
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class IMDLoader:
@@ -47,13 +52,21 @@ class IMDLoader:
             xr.Dataset: The raw rainfall dataset, unmodified.
 
         Raises:
-            FileNotFoundError: If no file exists at `self.file_path`.
+            DatasetNotFoundError: If no file exists at self.file_path.
         """
+        logger.info(f"Loading dataset from: {self.file_path}")
+
         if not self.file_path.exists():
-            raise FileNotFoundError(
+            logger.error(f"Dataset not found: {self.file_path}")
+            raise DatasetNotFoundError(
                 f"Dataset not found: {self.file_path}"
             )
 
         dataset: xr.Dataset = xr.open_dataset(self.file_path)
+
+        logger.info(
+            f"Dataset loaded successfully. "
+            f"Dimensions: {dict(dataset.sizes)}"
+        )
 
         return dataset

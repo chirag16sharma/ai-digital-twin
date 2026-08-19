@@ -12,6 +12,11 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
+from src.exceptions import DatasetSaveError, DatasetSchemaError
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class DataCleaner:
     """
@@ -41,6 +46,29 @@ class DataCleaner:
         """
         self.ds: xr.Dataset = dataset.copy()
 
+    def _get_rainfall(self) -> xr.DataArray:
+        """
+        Retrieve the "RAINFALL" variable, raising a domain-specific
+        exception if it's missing.
+
+        This exists to avoid repeating the same try/except KeyError
+        block in quality_report(), clean(), and any future method
+        that needs to access RAINFALL.
+
+        Returns:
+            xr.DataArray: The RAINFALL data variable.
+
+        Raises:
+            DatasetSchemaError: If "RAINFALL" is not present.
+        """
+        try:
+            return self.ds["RAINFALL"]
+        except KeyError as exc:
+            logger.error("Dataset is missing the 'RAINFALL' variable")
+            raise DatasetSchemaError(
+                "Dataset is missing the required 'RAINFALL' variable."
+            ) from exc
+
     def quality_report(self) -> None:
         """
         Print a report on data quality issues found in the dataset.
@@ -56,9 +84,12 @@ class DataCleaner:
             (e.g. a dict) for programmatic use / testing.
 
         Raises:
-            KeyError: If "RAINFALL" is not present in the dataset.
+            DatasetSchemaError: If "RAINFALL" is not present in the
+                dataset.
         """
-        rainfall: xr.DataArray = self.ds["RAINFALL"]
+        logger.info("Generating data quality report")
+
+        rainfall = self._get_rainfall()
 
         total_values: int = rainfall.size
         missing_values: int = int(np.isnan(rainfall.values).sum())
@@ -71,6 +102,24 @@ class DataCleaner:
         print(f"Total Values      : {total_values}")
         print(f"Missing Values    : {missing_values}")
         print(f"Negative Values   : {negative_values}")
+
+        if missing_values > 0:
+            logger.warning(
+                f"{missing_values} missing (NaN) rainfall values found "
+                f"({missing_values / total_values:.2%} of dataset)"
+            )
+
+        if negative_values > 0:
+            logger.warning(
+                f"{negative_values} negative rainfall values found "
+                f"({negative_values / total_values:.2%} of dataset)"
+            )
+
+        logger.info(
+            f"Quality report complete. "
+            f"Total: {total_values}, Missing: {missing_values}, "
+            f"Negative: {negative_values}"
+        )
 
     def clean(self) -> xr.Dataset:
         """
@@ -91,15 +140,26 @@ class DataCleaner:
                 should hold onto their own copy before calling clean().
 
         Raises:
-            KeyError: If "RAINFALL" is not present in the dataset.
+            DatasetSchemaError: If "RAINFALL" is not present in the
+                dataset.
         """
-        rainfall: xr.DataArray = self.ds["RAINFALL"]
+        logger.info("Cleaning dataset")
+
+        rainfall = self._get_rainfall()
+
+        negative_count = int((rainfall.values < 0).sum())
+        missing_count = int(np.isnan(rainfall.values).sum())
 
         rainfall = rainfall.where(rainfall >= 0, 0)
-
         rainfall = rainfall.fillna(0)
 
         self.ds["RAINFALL"] = rainfall
+
+        logger.info(
+            f"Cleaning complete. "
+            f"{negative_count} negative values clipped to 0, "
+            f"{missing_count} missing values filled with 0."
+        )
 
         return self.ds
 
@@ -116,9 +176,21 @@ class DataCleaner:
             None.
 
         Raises:
-            FileNotFoundError: If the parent directory of
-                output_path does not exist.
+            DatasetSaveError: If the file cannot be written — e.g.
+                the parent directory of output_path does not exist.
         """
-        self.ds.to_netcdf(output_path)
+        output_path = Path(output_path)
+
+        logger.info(f"Saving cleaned dataset to: {output_path}")
+
+        try:
+            self.ds.to_netcdf(output_path)
+        except FileNotFoundError as exc:
+            logger.error(f"Failed to save dataset to {output_path}: {exc}")
+            raise DatasetSaveError(
+                f"Could not save dataset to {output_path} — "
+                f"check that the parent directory exists."
+            ) from exc
 
         print(f"Dataset saved to: {output_path}")
+        logger.info(f"Dataset saved successfully to: {output_path}")

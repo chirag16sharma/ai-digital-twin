@@ -11,6 +11,10 @@ domain logic (no coordinate math, no dataset access).
 from datetime import datetime
 from typing import Any, Optional, TypedDict
 
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class DigitalTwinState(TypedDict):
     """
@@ -69,6 +73,8 @@ class StateManager:
             "last_updated": None
         }
 
+        logger.info("StateManager initialized with empty state")
+
     def set_location(self, latitude: float, longitude: float) -> None:
         """
         Update the current location in the state.
@@ -85,6 +91,8 @@ class StateManager:
 
         self._update_timestamp()
 
+        logger.debug(f"State location updated: ({latitude}, {longitude})")
+
     def set_date(self, date: str) -> None:
         """
         Update the current date in the state.
@@ -98,6 +106,8 @@ class StateManager:
         self.state["date"] = date
 
         self._update_timestamp()
+
+        logger.debug(f"State date updated: {date}")
 
     def set_rainfall(self, rainfall: Any) -> None:
         """
@@ -117,6 +127,8 @@ class StateManager:
         self.state["rainfall"] = rainfall
 
         self._update_timestamp()
+
+        logger.debug(f"State rainfall updated: {rainfall}")
 
     def update_state(
         self,
@@ -142,19 +154,27 @@ class StateManager:
         Returns:
             None. Also updates last_updated as a side effect.
         """
+        updated_fields = []
+
         if latitude is not None:
             self.state["latitude"] = latitude
+            updated_fields.append("latitude")
 
         if longitude is not None:
             self.state["longitude"] = longitude
+            updated_fields.append("longitude")
 
         if date is not None:
             self.state["date"] = date
+            updated_fields.append("date")
 
         if rainfall is not None:
             self.state["rainfall"] = rainfall
+            updated_fields.append("rainfall")
 
         self._update_timestamp()
+
+        logger.info(f"State updated: fields changed = {updated_fields}")
 
     def get_state(self) -> DigitalTwinState:
         """
@@ -192,6 +212,8 @@ class StateManager:
             "rainfall": None,
             "last_updated": None
         }
+
+        logger.info("State cleared — reset to initial (all None) values")
 
     def display_state(self) -> None:
         """

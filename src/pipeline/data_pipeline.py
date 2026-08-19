@@ -20,6 +20,11 @@ from src.preprocessing.data_explorer import DataExplorer
 from src.preprocessing.data_cleaner import DataCleaner
 from src.preprocessing.feature_engineer import FeatureEngineer
 
+from src.exceptions import DigitalTwinError, PipelineError
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class DataPipeline:
     """
@@ -74,45 +79,67 @@ class DataPipeline:
                 without re-reading it from disk.
 
         Raises:
-            FileNotFoundError: If self.input_file does not exist
-                (raised by IMDLoader.load()).
-            KeyError: If required variables ("RAINFALL") or
-                dimensions ("TIME") are missing from the dataset at
-                any pipeline stage.
+            PipelineError: If any stage of the pipeline fails. The
+                original exception (DatasetNotFoundError,
+                DatasetSchemaError, etc.) is preserved as the cause,
+                accessible via __cause__ — this method wraps rather
+                than replaces the underlying error, adding context
+                about which stage failed without hiding what
+                actually went wrong.
         """
+        logger.info("=" * 60)
+        logger.info("STARTING DATA PIPELINE")
+        logger.info(f"Input:  {self.input_file}")
+        logger.info(f"Output: {self.output_file}")
+        logger.info("=" * 60)
+
         print("=" * 60)
         print("STARTING DATA PIPELINE")
         print("=" * 60)
 
-        # Load
-        loader = IMDLoader(self.input_file)
-        ds: xr.Dataset = loader.load()
+        try:
+            # Load
+            logger.info("Stage 1/5: Loading dataset")
+            loader = IMDLoader(self.input_file)
+            ds: xr.Dataset = loader.load()
 
-        # Explore
-        explorer = DataExplorer(ds)
-        explorer.summary()
+            # Explore
+            logger.info("Stage 2/5: Exploring dataset")
+            explorer = DataExplorer(ds)
+            explorer.summary()
 
-        # Clean
-        cleaner = DataCleaner(ds)
-        cleaner.quality_report()
+            # Clean
+            logger.info("Stage 3/5: Cleaning dataset")
+            cleaner = DataCleaner(ds)
+            cleaner.quality_report()
+            cleaned_ds: xr.Dataset = cleaner.clean()
 
-        cleaned_ds: xr.Dataset = cleaner.clean()
+            # Feature Engineering
+            logger.info("Stage 4/5: Engineering features")
+            engineer = FeatureEngineer(cleaned_ds)
 
-        # Feature Engineering
-        engineer = FeatureEngineer(cleaned_ds)
+            engineer.add_cumulative_rainfall()
+            engineer.add_7day_average()
+            engineer.add_30day_average()
+            engineer.add_lag_feature()
 
-        engineer.add_cumulative_rainfall()
-        engineer.add_7day_average()
-        engineer.add_30day_average()
-        engineer.add_lag_feature()
+            feature_dataset: xr.Dataset = engineer.get_dataset()
 
-        feature_dataset: xr.Dataset = engineer.get_dataset()
+            # Save
+            logger.info("Stage 5/5: Saving final dataset")
+            engineer.save(self.output_file)
 
-        # Save
-        feature_dataset.to_netcdf(self.output_file)
+        except DigitalTwinError as exc:
+            logger.error(f"Pipeline failed: {exc}")
+            raise PipelineError(
+                f"Data pipeline failed: {exc}"
+            ) from exc
 
         print()
         print("Pipeline completed successfully!")
         print(f"Saved to: {self.output_file}")
+
+        logger.info("Pipeline completed successfully!")
+        logger.info(f"Saved to: {self.output_file}")
 
         return feature_dataset

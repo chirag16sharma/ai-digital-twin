@@ -15,6 +15,11 @@ from src.twin.spatial_engine import SpatialEngine
 from src.twin.temporal_engine import TemporalEngine
 from src.twin.state_manager import StateManager, DigitalTwinState
 
+from src.exceptions import InvalidDateError
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class QueryResult(TypedDict):
     """
@@ -78,6 +83,8 @@ class QueryEngine:
         self.temporal: TemporalEngine = temporal_engine
         self.state: StateManager = state_manager
 
+        logger.info("QueryEngine initialized")
+
     def rainfall_query(
         self,
         latitude: float,
@@ -100,28 +107,52 @@ class QueryEngine:
                 in mm.
 
         Raises:
-            KeyError: If "RAINFALL" is missing, or if `date` does not
-                exist in the dataset's TIME coordinate (propagated
-                from the underlying .sel() call).
+            InvalidCoordinateError: If latitude or longitude is
+                outside the dataset's coverage range (propagated
+                from SpatialEngine).
+            DatasetSchemaError: If "RAINFALL" is not present in the
+                dataset (propagated from SpatialEngine).
+            InvalidDateError: If `date` does not exist in the
+                dataset's TIME coordinate.
         """
-        # Find nearest grid
+        logger.info(
+            f"Query received: lat={latitude}, lon={longitude}, date={date!r}"
+        )
+
+        # Find nearest grid (raises InvalidCoordinateError if out of
+        # range — propagates as-is, no re-wrapping needed here)
         grid_lat, grid_lon = self.spatial.nearest_grid(
             latitude,
             longitude
         )
 
-        # Rainfall time-series
+        # Rainfall time-series (raises DatasetSchemaError if
+        # RAINFALL is missing — propagates as-is)
         rainfall_series = self.spatial.rainfall_at(
             latitude,
             longitude
         )
 
-        # Rainfall on requested date
-        rainfall: float = rainfall_series.sel(
-            {
-                self.temporal.time_name: date
-            }
-        ).values.item()
+        # Rainfall on requested date — this .sel() call is the one
+        # piece of risk specific to QueryEngine itself, so it's the
+        # one place in this method that needs its own try/except.
+        try:
+            rainfall: float = rainfall_series.sel(
+                {
+                    self.temporal.time_name: date
+                }
+            ).values.item()
+        except KeyError as exc:
+            logger.error(
+                f"Date {date!r} not found in dataset. "
+                f"Available range: [{self.temporal.first_date()}, "
+                f"{self.temporal.last_date()}]"
+            )
+            raise InvalidDateError(
+                f"Date {date!r} not found in dataset. "
+                f"Available range: [{self.temporal.first_date()}, "
+                f"{self.temporal.last_date()}]."
+            ) from exc
 
         # Update state
         self.state.update_state(
@@ -129,6 +160,11 @@ class QueryEngine:
             longitude=grid_lon,
             date=date,
             rainfall=rainfall
+        )
+
+        logger.info(
+            f"Query resolved: grid=({grid_lat}, {grid_lon}), "
+            f"date={date!r}, rainfall={rainfall:.2f}mm"
         )
 
         return {
@@ -156,4 +192,5 @@ class QueryEngine:
         Returns:
             None.
         """
+        logger.info("Resetting Digital Twin state via QueryEngine")
         self.state.clear_state()

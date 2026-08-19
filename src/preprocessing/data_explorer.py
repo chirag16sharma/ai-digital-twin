@@ -10,6 +10,11 @@ from self.ds and never writes to it.
 
 import xarray as xr
 
+from src.exceptions import DatasetSchemaError
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class DataExplorer:
     """
@@ -53,18 +58,38 @@ class DataExplorer:
             dict/dataclass in a future refactor.
 
         Raises:
-            KeyError: If "RAINFALL", "TIME", "LATITUDE", or
+            DatasetSchemaError: If "RAINFALL", "TIME", "LATITUDE", or
                 "LONGITUDE" are not present in the dataset.
         """
-        rainfall: xr.DataArray = self.ds["RAINFALL"]
+        logger.info("Generating dataset summary")
+
+        try:
+            rainfall: xr.DataArray = self.ds["RAINFALL"]
+        except KeyError as exc:
+            logger.error("Dataset is missing the 'RAINFALL' variable")
+            raise DatasetSchemaError(
+                "Dataset is missing the required 'RAINFALL' variable."
+            ) from exc
+
+        try:
+            time_steps = rainfall.sizes["TIME"]
+            lat_steps = rainfall.sizes["LATITUDE"]
+            lon_steps = rainfall.sizes["LONGITUDE"]
+        except KeyError as exc:
+            logger.error(
+                f"Dataset is missing an expected dimension: {exc}"
+            )
+            raise DatasetSchemaError(
+                f"Dataset is missing an expected dimension: {exc}"
+            ) from exc
 
         print("=" * 50)
         print("IMD DATASET SUMMARY")
         print("=" * 50)
 
-        print(f"Time Steps : {rainfall.sizes['TIME']}")
-        print(f"Latitudes  : {rainfall.sizes['LATITUDE']}")
-        print(f"Longitudes : {rainfall.sizes['LONGITUDE']}")
+        print(f"Time Steps : {time_steps}")
+        print(f"Latitudes  : {lat_steps}")
+        print(f"Longitudes : {lon_steps}")
 
         print()
 
@@ -75,6 +100,16 @@ class DataExplorer:
 
         print("Rainfall Statistics")
 
-        print(f"Minimum : {float(rainfall.min()):.2f} mm")
-        print(f"Maximum : {float(rainfall.max()):.2f} mm")
-        print(f"Average : {float(rainfall.mean()):.2f} mm")
+        rainfall_min = float(rainfall.min())
+        rainfall_max = float(rainfall.max())
+        rainfall_mean = float(rainfall.mean())
+
+        print(f"Minimum : {rainfall_min:.2f} mm")
+        print(f"Maximum : {rainfall_max:.2f} mm")
+        print(f"Average : {rainfall_mean:.2f} mm")
+
+        logger.info(
+            f"Summary generated. Time steps: {time_steps}, "
+            f"Lat: {lat_steps}, Lon: {lon_steps}, "
+            f"Rainfall range: [{rainfall_min:.2f}, {rainfall_max:.2f}] mm"
+        )

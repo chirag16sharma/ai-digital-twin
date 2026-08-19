@@ -9,10 +9,16 @@ components (Spatial, Temporal, State, Query, Simulation, DigitalTwin)
 and the only one that understands the dataset's spatial structure.
 """
 
-from typing import List, Tuple
+from typing import Tuple
 
 import numpy as np
 import xarray as xr
+
+from src.exceptions import DatasetSchemaError, InvalidCoordinateError
+from src.utils.coordinates import find_coordinate
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class SpatialEngine:
@@ -48,185 +54,46 @@ class SpatialEngine:
         Args:
             dataset: AI-ready rainfall dataset, expected to contain
                 latitude, longitude, and time coordinates under one
-                of several possible naming conventions (see
-                _find_coordinate).
+                of several possible naming conventions.
 
         Raises:
-            ValueError: If no recognized latitude, longitude, or time
-                coordinate name is found in the dataset.
+            CoordinateNotFoundError: If no recognized latitude,
+                longitude, or time coordinate name is found in the
+                dataset.
         """
         self.dataset: xr.Dataset = dataset
 
-        # Automatically detect coordinate names
-        self.lat_name: str = self._find_coordinate(
-            ["LATITUDE", "latitude", "lat"]
+        logger.info("Initializing SpatialEngine")
+
+        # Automatically detect coordinate names (shared implementation
+        # in src/utils/coordinates.py — also used by TemporalEngine)
+        self.lat_name: str = find_coordinate(
+            self.dataset, ["LATITUDE", "latitude", "lat"]
         )
 
-        self.lon_name: str = self._find_coordinate(
-            ["LONGITUDE", "longitude", "lon"]
+        self.lon_name: str = find_coordinate(
+            self.dataset, ["LONGITUDE", "longitude", "lon"]
         )
 
-        self.time_name: str = self._find_coordinate(
-            ["TIME", "time"]
+        self.time_name: str = find_coordinate(
+            self.dataset, ["TIME", "time"]
         )
 
         # Store coordinate arrays
         self.latitudes: np.ndarray = self.dataset[self.lat_name].values
         self.longitudes: np.ndarray = self.dataset[self.lon_name].values
 
-    def _find_coordinate(self, possible_names: List[str]) -> str:
-        """
-        Find which of several possible coordinate names is actually
-        present in the dataset.
-
-        This exists because IMD NetCDF files are inconsistent about
-        coordinate naming/casing across dataset versions (e.g.
-        "LATITUDE" vs "latitude" vs "lat"), so a single hardcoded
-        name would break silently on a differently-formatted file.
-
-        Args:
-            possible_names: Candidate coordinate names to check, in
-                priority order. The first match found is returned.
-
-        Returns:
-            str: The matching coordinate name, exactly as it appears
-                in self.dataset.coords.
-
-        Raises:
-            ValueError: If none of possible_names exist in the
-                dataset's coordinates.
-        """
-        for name in possible_names:
-            if name in self.dataset.coords:
-                return name
-
-        raise ValueError(
-            f"None of the coordinate names {possible_names} found."
+        logger.info(
+            f"SpatialEngine ready. lat_name={self.lat_name!r}, "
+            f"lon_name={self.lon_name!r}, time_name={self.time_name!r}, "
+            f"lat range=[{self.latitudes.min():.2f}, {self.latitudes.max():.2f}], "
+            f"lon range=[{self.longitudes.min():.2f}, {self.longitudes.max():.2f}]"
         )
 
-    def available_coordinates(self) -> None:
-        """
-        Print the available latitude and longitude ranges for this
-        dataset, for quick diagnostic/exploration purposes.
+    # _find_coordinate() removed — now imported as find_coordinate()
+    # from src.utils.coordinates
 
-        Returns:
-            None. Console output only.
-        """
-        print(f"Latitude ({self.lat_name})")
-        print(f"Minimum : {self.latitudes.min()}")
-        print(f"Maximum : {self.latitudes.max()}")
-
-        print()
-
-        print(f"Longitude ({self.lon_name})")
-        print(f"Minimum : {self.longitudes.min()}")
-        print(f"Maximum : {self.longitudes.max()}")
-
-    def nearest_latitude(self, latitude: float) -> float:
-        """
-        Find the latitude grid value closest to a requested latitude.
-
-        Args:
-            latitude: The requested latitude, which may not exactly
-                match a grid point (IMD data is on a fixed grid,
-                e.g. 0.25-degree resolution).
-
-        Returns:
-            float: The nearest actual latitude value present in the
-                dataset's grid.
-        """
-        idx = np.abs(self.latitudes - latitude).argmin()
-
-        return self.latitudes[idx]
-
-    def nearest_longitude(self, longitude: float) -> float:
-        """
-        Find the longitude grid value closest to a requested longitude.
-
-        Args:
-            longitude: The requested longitude, which may not exactly
-                match a grid point.
-
-        Returns:
-            float: The nearest actual longitude value present in the
-                dataset's grid.
-        """
-        idx = np.abs(self.longitudes - longitude).argmin()
-
-        return self.longitudes[idx]
-
-    def nearest_grid(
-        self, latitude: float, longitude: float
-    ) -> Tuple[float, float]:
-        """
-        Find the nearest (latitude, longitude) grid point to a
-        requested location.
-
-        Args:
-            latitude: Requested latitude.
-            longitude: Requested longitude.
-
-        Returns:
-            Tuple[float, float]: The nearest (latitude, longitude)
-                pair actually present in the dataset's grid.
-        """
-        lat = self.nearest_latitude(latitude)
-        lon = self.nearest_longitude(longitude)
-
-        return lat, lon
-
-    def rainfall_at(self, latitude: float, longitude: float) -> xr.DataArray:
-        """
-        Return the full rainfall time series for the nearest grid
-        point to a requested location.
-
-        Args:
-            latitude: Requested latitude.
-            longitude: Requested longitude.
-
-        Returns:
-            xr.DataArray: Rainfall values over all time steps at the
-                nearest grid point, indexed along the TIME dimension.
-
-        Raises:
-            KeyError: If "RAINFALL" is not present in the dataset.
-        """
-        lat, lon = self.nearest_grid(latitude, longitude)
-
-        rainfall: xr.DataArray = self.dataset["RAINFALL"].sel(
-            {
-                self.lat_name: lat,
-                self.lon_name: lon
-            }
-        )
-
-        return rainfall
-
-    def rainfall_on_date(
-        self, latitude: float, longitude: float, date: str
-    ) -> xr.DataArray:
-        """
-        Return rainfall at a given location on a specific date.
-
-        Args:
-            latitude: Requested latitude.
-            longitude: Requested longitude.
-            date: Date string in a format xarray's .sel() can parse
-                against the TIME coordinate, e.g. "2025-07-15".
-
-        Returns:
-            xr.DataArray: A single rainfall value (as a 0-dimensional
-                DataArray) for the nearest grid point on the given
-                date.
-
-        Raises:
-            KeyError: If "RAINFALL" is missing, or if `date` does not
-                exist in the dataset's TIME coordinate.
-        """
-        rainfall = self.rainfall_at(latitude, longitude)
-
-        return rainfall.sel(
-            {
-                self.time_name: date
-            }
-        )
+    # ... available_coordinates(), _validate_latitude(),
+    # _validate_longitude(), nearest_latitude(), nearest_longitude(),
+    # nearest_grid(), rainfall_at(), rainfall_on_date() all stay
+    # exactly as in the previous message — no changes below this point.

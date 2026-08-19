@@ -12,6 +12,11 @@ from pathlib import Path
 
 import xarray as xr
 
+from src.exceptions import DatasetSaveError, DatasetSchemaError
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class FeatureEngineer:
     """
@@ -41,6 +46,29 @@ class FeatureEngineer:
         """
         self.ds: xr.Dataset = dataset.copy()
 
+    def _get_rainfall(self) -> xr.DataArray:
+        """
+        Retrieve the "RAINFALL" variable, raising a domain-specific
+        exception if it's missing.
+
+        Shared by every add_*() method below, so the same
+        try/except KeyError block doesn't need to be repeated four
+        times.
+
+        Returns:
+            xr.DataArray: The RAINFALL data variable.
+
+        Raises:
+            DatasetSchemaError: If "RAINFALL" is not present.
+        """
+        try:
+            return self.ds["RAINFALL"]
+        except KeyError as exc:
+            logger.error("Dataset is missing the 'RAINFALL' variable")
+            raise DatasetSchemaError(
+                "Dataset is missing the required 'RAINFALL' variable."
+            ) from exc
+
     def add_cumulative_rainfall(self) -> None:
         """
         Add a "CUMULATIVE_RAINFALL" variable: the running total of
@@ -51,12 +79,23 @@ class FeatureEngineer:
             variable; use get_dataset() to retrieve the result.
 
         Raises:
-            KeyError: If "RAINFALL" or the "TIME" dimension is not
-                present in the dataset.
+            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
+                is not present in the dataset.
         """
-        self.ds["CUMULATIVE_RAINFALL"] = (
-            self.ds["RAINFALL"].cumsum(dim="TIME")
-        )
+        logger.info("Adding feature: CUMULATIVE_RAINFALL")
+
+        rainfall = self._get_rainfall()
+
+        try:
+            self.ds["CUMULATIVE_RAINFALL"] = rainfall.cumsum(dim="TIME")
+        except ValueError as exc:
+            logger.error(f"Failed to compute cumulative rainfall: {exc}")
+            raise DatasetSchemaError(
+                f"Dataset is missing the 'TIME' dimension required "
+                f"for cumulative rainfall: {exc}"
+            ) from exc
+
+        logger.info("CUMULATIVE_RAINFALL added successfully")
 
     def add_7day_average(self) -> None:
         """
@@ -73,14 +112,25 @@ class FeatureEngineer:
             None. Mutates self.ds in place.
 
         Raises:
-            KeyError: If "RAINFALL" or the "TIME" dimension is not
-                present in the dataset.
+            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
+                is not present in the dataset.
         """
-        self.ds["RAINFALL_7DAY_AVG"] = (
-            self.ds["RAINFALL"]
-            .rolling(TIME=7, min_periods=1)
-            .mean()
-        )
+        logger.info("Adding feature: RAINFALL_7DAY_AVG")
+
+        rainfall = self._get_rainfall()
+
+        try:
+            self.ds["RAINFALL_7DAY_AVG"] = (
+                rainfall.rolling(TIME=7, min_periods=1).mean()
+            )
+        except ValueError as exc:
+            logger.error(f"Failed to compute 7-day average: {exc}")
+            raise DatasetSchemaError(
+                f"Dataset is missing the 'TIME' dimension required "
+                f"for the 7-day rolling average: {exc}"
+            ) from exc
+
+        logger.info("RAINFALL_7DAY_AVG added successfully")
 
     def add_30day_average(self) -> None:
         """
@@ -92,14 +142,25 @@ class FeatureEngineer:
             None. Mutates self.ds in place.
 
         Raises:
-            KeyError: If "RAINFALL" or the "TIME" dimension is not
-                present in the dataset.
+            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
+                is not present in the dataset.
         """
-        self.ds["RAINFALL_30DAY_AVG"] = (
-            self.ds["RAINFALL"]
-            .rolling(TIME=30, min_periods=1)
-            .mean()
-        )
+        logger.info("Adding feature: RAINFALL_30DAY_AVG")
+
+        rainfall = self._get_rainfall()
+
+        try:
+            self.ds["RAINFALL_30DAY_AVG"] = (
+                rainfall.rolling(TIME=30, min_periods=1).mean()
+            )
+        except ValueError as exc:
+            logger.error(f"Failed to compute 30-day average: {exc}")
+            raise DatasetSchemaError(
+                f"Dataset is missing the 'TIME' dimension required "
+                f"for the 30-day rolling average: {exc}"
+            ) from exc
+
+        logger.info("RAINFALL_30DAY_AVG added successfully")
 
     def add_lag_feature(self) -> None:
         """
@@ -114,12 +175,23 @@ class FeatureEngineer:
             None. Mutates self.ds in place.
 
         Raises:
-            KeyError: If "RAINFALL" or the "TIME" dimension is not
-                present in the dataset.
+            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
+                is not present in the dataset.
         """
-        self.ds["PREVIOUS_DAY_RAINFALL"] = (
-            self.ds["RAINFALL"].shift(TIME=1)
-        )
+        logger.info("Adding feature: PREVIOUS_DAY_RAINFALL")
+
+        rainfall = self._get_rainfall()
+
+        try:
+            self.ds["PREVIOUS_DAY_RAINFALL"] = rainfall.shift(TIME=1)
+        except ValueError as exc:
+            logger.error(f"Failed to compute lag feature: {exc}")
+            raise DatasetSchemaError(
+                f"Dataset is missing the 'TIME' dimension required "
+                f"for the lag feature: {exc}"
+            ) from exc
+
+        logger.info("PREVIOUS_DAY_RAINFALL added successfully")
 
     def get_dataset(self) -> xr.Dataset:
         """
@@ -144,9 +216,21 @@ class FeatureEngineer:
             None.
 
         Raises:
-            FileNotFoundError: If the parent directory of
-                output_path does not exist.
+            DatasetSaveError: If the file cannot be written — e.g.
+                the parent directory of output_path does not exist.
         """
-        self.ds.to_netcdf(output_path)
+        output_path = Path(output_path)
+
+        logger.info(f"Saving feature dataset to: {output_path}")
+
+        try:
+            self.ds.to_netcdf(output_path)
+        except FileNotFoundError as exc:
+            logger.error(f"Failed to save dataset to {output_path}: {exc}")
+            raise DatasetSaveError(
+                f"Could not save dataset to {output_path} — "
+                f"check that the parent directory exists."
+            ) from exc
 
         print(f"Feature dataset saved to: {output_path}")
+        logger.info(f"Feature dataset saved successfully to: {output_path}")
