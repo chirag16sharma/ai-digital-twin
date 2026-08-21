@@ -68,24 +68,17 @@ class DataPipeline:
             2. Print an exploratory summary (DataExplorer).
             3. Report and fix data quality issues (DataCleaner).
             4. Add engineered features (FeatureEngineer):
-               cumulative rainfall, 7-day average, 30-day average,
-               previous-day lag.
+               cumulative rainfall, short-window average,
+               long-window average, previous-day lag.
             5. Save the resulting dataset to self.output_file.
 
         Returns:
-            xr.Dataset: The final, feature-engineered dataset — the
-                same object that gets saved to self.output_file, so
-                callers can continue working with it in memory
-                without re-reading it from disk.
+            xr.Dataset: The final, feature-engineered dataset.
 
         Raises:
             PipelineError: If any stage of the pipeline fails. The
-                original exception (DatasetNotFoundError,
-                DatasetSchemaError, etc.) is preserved as the cause,
-                accessible via __cause__ — this method wraps rather
-                than replaces the underlying error, adding context
-                about which stage failed without hiding what
-                actually went wrong.
+                original exception is preserved as the cause via
+                __cause__.
         """
         logger.info("=" * 60)
         logger.info("STARTING DATA PIPELINE")
@@ -119,8 +112,8 @@ class DataPipeline:
             engineer = FeatureEngineer(cleaned_ds)
 
             engineer.add_cumulative_rainfall()
-            engineer.add_7day_average()
-            engineer.add_30day_average()
+            engineer.add_short_window_average()
+            engineer.add_long_window_average()
             engineer.add_lag_feature()
 
             feature_dataset: xr.Dataset = engineer.get_dataset()

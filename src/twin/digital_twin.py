@@ -31,12 +31,7 @@ class DigitalTwin:
     rainfall data and simulation system.
 
     Single Responsibility:
-        Composition and public interface only. DigitalTwin builds and
-        owns every other component (SpatialEngine, TemporalEngine,
-        StateManager, QueryEngine, SimulationEngine) and exposes a
-        small, friendly set of methods on top of them. It contains no
-        domain logic of its own — every public method here is a thin
-        delegate to one of its components.
+        Composition and public interface only.
 
     Architecture:
         User
@@ -54,10 +49,8 @@ class DigitalTwin:
         spatial (SpatialEngine): Handles location-based queries.
         temporal (TemporalEngine): Handles date/time-based queries.
         state (StateManager): Tracks the twin's current state.
-        query (QueryEngine): Combines spatial + temporal + state for
-            rainfall_query().
-        simulation (SimulationEngine): Runs what-if rainfall
-            scenarios on a separate, deep-copied dataset.
+        query (QueryEngine): Combines spatial + temporal + state.
+        simulation (SimulationEngine): Runs what-if scenarios.
     """
 
     def __init__(self, dataset_path: str | Path) -> None:
@@ -70,15 +63,9 @@ class DigitalTwin:
                 file.
 
         Raises:
-            DatasetNotFoundError: If no file exists at dataset_path
-                (propagated from IMDLoader.load()).
+            DatasetNotFoundError: If no file exists at dataset_path.
             CoordinateNotFoundError: If the dataset is missing a
-                recognizable latitude, longitude, or time coordinate
-                (propagated from SpatialEngine/TemporalEngine
-                construction). Not wrapped into a single top-level
-                exception — see the design note above this class for
-                why, and reconsider if a unified
-                "DigitalTwinInitializationError" would be preferred.
+                recognizable latitude, longitude, or time coordinate.
         """
         self.dataset_path: Path = Path(dataset_path)
 
@@ -97,169 +84,81 @@ class DigitalTwin:
             self.state
         )
 
-        # NOTE: SimulationEngine still hardcodes "TIME" internally
-        # rather than receiving self.temporal.time_name. Flagged
-        # since Day 1/2, still open — fixing it means changing
-        # SimulationEngine's constructor signature, which is a
-        # design change beyond today's logging/exceptions scope.
+        # SimulationEngine now receives time_name explicitly from
+        # TemporalEngine, rather than re-detecting it independently.
+        # This guarantees all three engines agree on the same
+        # coordinate name — closing the item flagged since Day 1.
         self.simulation: SimulationEngine = SimulationEngine(
-            self.dataset
+            self.dataset,
+            time_name=self.temporal.time_name
         )
 
         logger.info("DigitalTwin constructed successfully — all components ready")
 
-    def rainfall(
-        self,
-        latitude: float,
-        longitude: float,
-        date: str
-    ) -> QueryResult:
+    def rainfall(self, latitude: float, longitude: float, date: str) -> QueryResult:
         """
         Query rainfall at a location and date.
 
-        Args:
-            latitude: Requested latitude.
-            longitude: Requested longitude.
-            date: Date string, e.g. "2025-07-15".
-
-        Returns:
-            QueryResult: The resolved grid latitude/longitude, the
-                queried date, and the rainfall value in mm.
-
         Raises:
-            InvalidCoordinateError: If latitude/longitude is outside
-                the dataset's coverage (propagated from QueryEngine).
-            DatasetSchemaError: If "RAINFALL" is missing (propagated
-                from QueryEngine).
+            InvalidCoordinateError: If latitude/longitude is out of
+                range (propagated from QueryEngine).
+            DatasetSchemaError: If the rainfall variable is missing
+                (propagated from QueryEngine).
             InvalidDateError: If the date is not present in the
                 dataset (propagated from QueryEngine).
         """
-        return self.query.rainfall_query(
-            latitude,
-            longitude,
-            date
-        )
+        return self.query.rainfall_query(latitude, longitude, date)
 
     def current_state(self) -> DigitalTwinState:
-        """
-        Return the twin's current state (last-queried location,
-        date, rainfall, and when it was last updated).
-
-        Returns:
-            DigitalTwinState: The current state dict.
-        """
+        """Return the twin's current state."""
         return self.query.current_state()
 
     def reset_state(self) -> None:
-        """
-        Clear the twin's state back to its initial (all-None) values.
-
-        Returns:
-            None.
-        """
+        """Clear the twin's state back to its initial values."""
         self.query.reset()
 
     def simulate_increase(self, percentage: float) -> xr.Dataset:
         """
-        Simulate a percentage increase in rainfall across the entire
-        simulated dataset.
-
-        Args:
-            percentage: Percentage increase to apply, e.g. 20 for a
-                20% increase. Must be non-negative.
-
-        Returns:
-            xr.Dataset: The updated simulated dataset.
+        Simulate a percentage increase in rainfall.
 
         Raises:
-            SimulationError: If percentage is negative (propagated
-                from SimulationEngine).
+            SimulationError: If percentage is negative.
         """
-        return self.simulation.rainfall_increase(
-            percentage
-        )
+        return self.simulation.rainfall_increase(percentage)
 
     def simulate_decrease(self, percentage: float) -> xr.Dataset:
         """
-        Simulate a percentage decrease in rainfall across the entire
-        simulated dataset.
-
-        Args:
-            percentage: Percentage decrease to apply, e.g. 20 for a
-                20% decrease. Must be in [0, 100].
-
-        Returns:
-            xr.Dataset: The updated simulated dataset.
+        Simulate a percentage decrease in rainfall.
 
         Raises:
             SimulationError: If percentage is negative or exceeds
-                100 (propagated from SimulationEngine).
+                config.settings.MAX_RAINFALL_DECREASE_PERCENTAGE.
         """
-        return self.simulation.rainfall_decrease(
-            percentage
-        )
+        return self.simulation.rainfall_decrease(percentage)
 
-    def simulate_dry_spell(
-        self,
-        start_date: str,
-        end_date: str
-    ) -> xr.Dataset:
+    def simulate_dry_spell(self, start_date: str, end_date: str) -> xr.Dataset:
         """
         Simulate a dry spell (zero rainfall) over a date range.
 
-        Args:
-            start_date: Start of the dry spell, e.g. "2025-07-01".
-            end_date: End of the dry spell, e.g. "2025-07-10".
-
-        Returns:
-            xr.Dataset: The updated simulated dataset.
-
         Raises:
-            DatasetSchemaError: If "RAINFALL" or "TIME" is missing
-                (propagated from SimulationEngine).
+            DatasetSchemaError: If the rainfall variable or time
+                dimension is missing.
         """
-        return self.simulation.dry_spell(
-            start_date,
-            end_date
-        )
+        return self.simulation.dry_spell(start_date, end_date)
 
     def simulate_heavy_rainfall(
-        self,
-        start_date: str,
-        end_date: str,
-        multiplier: float
+        self, start_date: str, end_date: str, multiplier: float
     ) -> xr.Dataset:
         """
-        Simulate heavy rainfall (rainfall multiplied by a factor)
-        over a date range.
-
-        Args:
-            start_date: Start of the heavy rainfall period.
-            end_date: End of the heavy rainfall period.
-            multiplier: Factor to multiply rainfall by, e.g. 2.0 to
-                double it. Must be non-negative.
-
-        Returns:
-            xr.Dataset: The updated simulated dataset.
+        Simulate heavy rainfall over a date range.
 
         Raises:
-            SimulationError: If multiplier is negative (propagated
-                from SimulationEngine).
-            DatasetSchemaError: If "RAINFALL" or "TIME" is missing
-                (propagated from SimulationEngine).
+            SimulationError: If multiplier is negative.
+            DatasetSchemaError: If the rainfall variable or time
+                dimension is missing.
         """
-        return self.simulation.heavy_rainfall(
-            start_date,
-            end_date,
-            multiplier
-        )
+        return self.simulation.heavy_rainfall(start_date, end_date, multiplier)
 
     def reset_simulation(self) -> None:
-        """
-        Discard all simulated changes and restore the simulated
-        dataset back to the original, unmodified data.
-
-        Returns:
-            None.
-        """
+        """Discard all simulated changes, restoring original data."""
         self.simulation.reset()

@@ -8,42 +8,28 @@ serves as a manual smoke test that the whole system wires together
 correctly end to end.
 """
 
-from pathlib import Path
-
+from config.settings import PROCESSED_DATASET_PATH
 from src.twin.digital_twin import DigitalTwin
-
-
-# TEMPORARY: hardcoded dataset path. This will move into
-# config/settings.py on Day 4 (Configuration System), at which point
-# this constant disappears and DigitalTwin will source its default
-# path from config instead of requiring the caller to know it.
-DATASET_PATH: Path = Path("data/processed/rainfall_ai_ready.nc")
 
 
 def main() -> None:
     """
     Run a demonstration of the AI Digital Twin's core capabilities.
 
-    This function is intentionally simple: it exists to prove the
-    system works end to end (load -> query -> simulate -> reset), not
-    to be a full CLI. A proper CLI/API interface is planned for a
-    later week (FastAPI, per the project roadmap).
-
     Raises:
-        FileNotFoundError: If DATASET_PATH does not point to an
-            existing file (propagated from DigitalTwin -> IMDLoader).
-        ValueError: If the dataset is missing a recognizable
-            latitude, longitude, or time coordinate (propagated from
-            DigitalTwin -> SpatialEngine/TemporalEngine).
+        DatasetNotFoundError: If PROCESSED_DATASET_PATH does not
+            point to an existing file.
+        CoordinateNotFoundError: If the dataset is missing a
+            recognizable latitude, longitude, or time coordinate.
     """
     print("=" * 60)
     print("AI DIGITAL TWIN PROJECT STARTED")
     print("=" * 60)
 
-    twin = DigitalTwin(DATASET_PATH)
+    twin = DigitalTwin(PROCESSED_DATASET_PATH)
 
-    print(f"\nDataset loaded: {DATASET_PATH}")
-    print(f"Available coordinate ranges:")
+    print(f"\nDataset loaded: {PROCESSED_DATASET_PATH}")
+    print("Available coordinate ranges:")
     twin.spatial.available_coordinates()
 
     # --- Example query ---

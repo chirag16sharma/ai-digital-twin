@@ -11,7 +11,9 @@ via reset().
 
 import xarray as xr
 
+from config.settings import MAX_RAINFALL_DECREASE_PERCENTAGE, RAINFALL_VARIABLE_NAME, TIME_ALIASES
 from src.exceptions import DatasetSchemaError, SimulationError
+from src.utils.coordinates import find_coordinate
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -36,9 +38,11 @@ class SimulationEngine:
         simulated_dataset (xr.Dataset): A deep copy of the dataset
             that simulation methods mutate. This is the dataset
             returned by every simulate_* method and get_dataset().
+        time_name (str): The actual time coordinate name used by
+            dry_spell() and heavy_rainfall() for date-range slicing.
     """
 
-    def __init__(self, dataset: xr.Dataset) -> None:
+    def __init__(self, dataset: xr.Dataset, time_name: str | None = None) -> None:
         """
         Initialize the Simulation Engine.
 
@@ -46,18 +50,39 @@ class SimulationEngine:
             dataset: The source rainfall dataset to simulate against.
                 A deep copy is taken immediately, so the caller's
                 original dataset is never mutated by any simulation.
+            time_name: The actual time coordinate name to use for
+                date-range operations (dry_spell, heavy_rainfall).
+                If None (default), it is auto-detected from the
+                dataset using config.settings.TIME_ALIASES — the
+                same detection SpatialEngine and TemporalEngine use.
+                Callers that already have a TemporalEngine instance
+                should pass its time_name explicitly (e.g.
+                temporal_engine.time_name) to avoid re-detecting it
+                and to guarantee all three engines agree on the same
+                coordinate name.
+
+        Raises:
+            CoordinateNotFoundError: If time_name is None and no
+                recognized time coordinate name is found in the
+                dataset.
 
         Note:
-            self.original_dataset stores a reference to the caller's
-            dataset object, not a copy of it. See the Day 2 note on
-            this — still an open item, not addressed today since
-            Day 3 is scoped to logging/exceptions, not defensive
-            copying.
+            This replaces the previous behavior where "TIME" was
+            hardcoded directly inside dry_spell() and
+            heavy_rainfall(). Flagged since the Day 1 code review —
+            resolved today by accepting time_name at construction
+            instead. self.original_dataset still stores a reference
+            rather than a defensive copy — that item remains open.
         """
         self.original_dataset: xr.Dataset = dataset
         self.simulated_dataset: xr.Dataset = dataset.copy(deep=True)
 
-        logger.info("SimulationEngine initialized")
+        if time_name is None:
+            time_name = find_coordinate(dataset, TIME_ALIASES)
+
+        self.time_name: str = time_name
+
+        logger.info(f"SimulationEngine initialized. time_name={self.time_name!r}")
 
     def reset(self) -> None:
         """
@@ -82,8 +107,10 @@ class SimulationEngine:
 
         Raises:
             SimulationError: If percentage is negative, or if a
-                "decrease" percentage exceeds 100 (which would flip
-                rainfall negative — physically invalid).
+                "decrease" percentage exceeds
+                config.settings.MAX_RAINFALL_DECREASE_PERCENTAGE
+                (which would flip rainfall negative — physically
+                invalid).
         """
         if percentage < 0:
             logger.error(
@@ -95,14 +122,16 @@ class SimulationEngine:
                 f"got {percentage}."
             )
 
-        if operation == "decrease" and percentage > 100:
+        if operation == "decrease" and percentage > MAX_RAINFALL_DECREASE_PERCENTAGE:
             logger.error(
                 f"Invalid decrease percentage: {percentage} "
-                f"(exceeds 100, would produce negative rainfall)"
+                f"(exceeds {MAX_RAINFALL_DECREASE_PERCENTAGE}, "
+                f"would produce negative rainfall)"
             )
             raise SimulationError(
-                f"Rainfall decrease percentage cannot exceed 100 "
-                f"(would produce negative rainfall), got {percentage}."
+                f"Rainfall decrease percentage cannot exceed "
+                f"{MAX_RAINFALL_DECREASE_PERCENTAGE} (would produce "
+                f"negative rainfall), got {percentage}."
             )
 
     def rainfall_increase(self, percentage: float) -> xr.Dataset:
@@ -125,8 +154,8 @@ class SimulationEngine:
 
         factor = 1 + (percentage / 100)
 
-        self.simulated_dataset["RAINFALL"] = (
-            self.simulated_dataset["RAINFALL"] * factor
+        self.simulated_dataset[RAINFALL_VARIABLE_NAME] = (
+            self.simulated_dataset[RAINFALL_VARIABLE_NAME] * factor
         )
 
         logger.info(f"Simulated rainfall increase: {percentage}% (factor={factor})")
@@ -140,7 +169,8 @@ class SimulationEngine:
 
         Args:
             percentage: The percentage decrease to apply, e.g. 20 for
-                a 20% decrease (factor = 0.80). Must be in [0, 100].
+                a 20% decrease (factor = 0.80). Must be in
+                [0, MAX_RAINFALL_DECREASE_PERCENTAGE].
 
         Returns:
             xr.Dataset: The updated simulated_dataset (same object,
@@ -148,14 +178,14 @@ class SimulationEngine:
 
         Raises:
             SimulationError: If percentage is negative or exceeds
-                100.
+                MAX_RAINFALL_DECREASE_PERCENTAGE.
         """
         self._validate_percentage(percentage, operation="decrease")
 
         factor = 1 - (percentage / 100)
 
-        self.simulated_dataset["RAINFALL"] = (
-            self.simulated_dataset["RAINFALL"] * factor
+        self.simulated_dataset[RAINFALL_VARIABLE_NAME] = (
+            self.simulated_dataset[RAINFALL_VARIABLE_NAME] * factor
         )
 
         logger.info(f"Simulated rainfall decrease: {percentage}% (factor={factor})")
@@ -175,22 +205,12 @@ class SimulationEngine:
             xr.Dataset: The updated simulated_dataset.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
-                is not present in the dataset.
-
-        Note:
-            Uses the hardcoded dimension name "TIME" rather than an
-            auto-detected time coordinate name. Still flagged from
-            Day 1/2 — the proper fix is for SimulationEngine to
-            accept a time_name parameter at construction (mirroring
-            how QueryEngine receives its dependencies), rather than
-            assuming "TIME". Not addressed today, since it requires
-            a constructor signature change, which is out of scope
-            for a logging/exceptions pass.
+            DatasetSchemaError: If the rainfall variable or the time
+                dimension is not present in the dataset.
         """
         try:
-            self.simulated_dataset["RAINFALL"].loc[
-                dict(TIME=slice(start_date, end_date))
+            self.simulated_dataset[RAINFALL_VARIABLE_NAME].loc[
+                {self.time_name: slice(start_date, end_date)}
             ] = 0
         except KeyError as exc:
             logger.error(
@@ -198,7 +218,8 @@ class SimulationEngine:
             )
             raise DatasetSchemaError(
                 f"Could not apply dry spell — dataset may be missing "
-                f"'RAINFALL' or a 'TIME' dimension: {exc}"
+                f"{RAINFALL_VARIABLE_NAME!r} or the {self.time_name!r} "
+                f"dimension: {exc}"
             ) from exc
 
         logger.info(f"Simulated dry spell: [{start_date}, {end_date}] set to 0mm")
@@ -223,12 +244,8 @@ class SimulationEngine:
 
         Raises:
             SimulationError: If multiplier is negative.
-            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
-                is not present in the dataset.
-
-        Note:
-            Same hardcoded "TIME" issue as dry_spell() — see that
-            method's docstring for details.
+            DatasetSchemaError: If the rainfall variable or the time
+                dimension is not present in the dataset.
         """
         if multiplier < 0:
             logger.error(f"Invalid heavy_rainfall multiplier: {multiplier}")
@@ -238,8 +255,8 @@ class SimulationEngine:
             )
 
         try:
-            self.simulated_dataset["RAINFALL"].loc[
-                dict(TIME=slice(start_date, end_date))
+            self.simulated_dataset[RAINFALL_VARIABLE_NAME].loc[
+                {self.time_name: slice(start_date, end_date)}
             ] *= multiplier
         except KeyError as exc:
             logger.error(
@@ -247,7 +264,8 @@ class SimulationEngine:
             )
             raise DatasetSchemaError(
                 f"Could not apply heavy rainfall — dataset may be missing "
-                f"'RAINFALL' or a 'TIME' dimension: {exc}"
+                f"{RAINFALL_VARIABLE_NAME!r} or the {self.time_name!r} "
+                f"dimension: {exc}"
             ) from exc
 
         logger.info(

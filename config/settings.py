@@ -1,85 +1,76 @@
 """
-Project configuration settings.
+config/settings.py
 
-This module centralizes project-wide constants, directory paths,
-dataset locations, and default configuration values.
-
-Keeping configuration in one place improves maintainability,
-reduces hardcoded values, and simplifies future deployment.
+Central configuration for the AI Digital Twin project. Every module
+that needs a file path, a dataset schema constant (variable/coordinate
+names), or a default value should import it from here rather than
+hardcoding it locally. This is the single place these values change
+when the project's data or environment changes.
 """
 
+import logging
 from pathlib import Path
 
-# ==========================================================
-# Project Directories
-# ==========================================================
+# ------------------------------------------------------------------
+# Project directories
+# ------------------------------------------------------------------
 
-# Project root directory
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Root of the project (parent of the config/ folder this file lives in)
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
-# Main directories
-DATA_DIR = PROJECT_ROOT / "data"
-RAW_DATA_DIR = DATA_DIR / "raw"
-PROCESSED_DATA_DIR = DATA_DIR / "processed"
+DATA_DIR: Path = PROJECT_ROOT / "data"
+RAW_DATA_DIR: Path = DATA_DIR / "raw"
+PROCESSED_DATA_DIR: Path = DATA_DIR / "processed"
 
-SRC_DIR = PROJECT_ROOT / "src"
-NOTEBOOKS_DIR = PROJECT_ROOT / "notebooks"
-DOCS_DIR = PROJECT_ROOT / "docs"
-MODELS_DIR = PROJECT_ROOT / "models"
-TESTS_DIR = PROJECT_ROOT / "tests"
+# ------------------------------------------------------------------
+# Dataset paths
+# ------------------------------------------------------------------
 
-# ==========================================================
-# Dataset Paths
-# ==========================================================
+# Default raw IMD dataset, as loaded by IMDLoader in the pipeline.
+# NOTE: adjust this filename to match your actual raw file.
+RAW_DATASET_PATH: Path = RAW_DATA_DIR / "imd_rainfall.nc"
 
-RAW_DATASET_PATH = RAW_DATA_DIR / "rainfall2025.nc"
+# Default processed, ML-ready dataset produced by DataPipeline and
+# consumed by DigitalTwin. This replaces the temporary DATASET_PATH
+# constant that previously lived directly in main.py.
+PROCESSED_DATASET_PATH: Path = PROCESSED_DATA_DIR / "rainfall_ai_ready.nc"
 
-PROCESSED_DATASET_PATH = (
-    PROCESSED_DATA_DIR / "rainfall_ai_ready.nc"
-)
+# ------------------------------------------------------------------
+# Dataset schema — variable and coordinate naming
+# ------------------------------------------------------------------
 
-# ==========================================================
-# Coordinate Names
-# ==========================================================
+# The name of the rainfall data variable in the dataset. Currently
+# assumed identical across all IMD files; if that ever changes, this
+# is the one line to edit.
+RAINFALL_VARIABLE_NAME: str = "RAINFALL"
 
-LATITUDE_NAMES = [
-    "LATITUDE",
-    "latitude",
-    "lat",
-]
+# Possible coordinate name variants, in priority order, used by
+# find_coordinate() (src/utils/coordinates.py). IMD NetCDF files are
+# inconsistent about naming/casing across dataset versions.
+LATITUDE_ALIASES: list[str] = ["LATITUDE", "latitude", "lat"]
+LONGITUDE_ALIASES: list[str] = ["LONGITUDE", "longitude", "lon"]
+TIME_ALIASES: list[str] = ["TIME", "time"]
 
-LONGITUDE_NAMES = [
-    "LONGITUDE",
-    "longitude",
-    "lon",
-]
+# ------------------------------------------------------------------
+# Feature engineering defaults
+# ------------------------------------------------------------------
 
-TIME_NAMES = [
-    "TIME",
-    "time",
-]
+ROLLING_AVERAGE_SHORT_WINDOW: int = 7   # days, used by add_7day_average()
+ROLLING_AVERAGE_LONG_WINDOW: int = 30   # days, used by add_30day_average()
+LAG_FEATURE_DAYS: int = 1               # days, used by add_lag_feature()
 
-# ==========================================================
-# Feature Engineering
-# ==========================================================
+# ------------------------------------------------------------------
+# Simulation defaults / validation bounds
+# ------------------------------------------------------------------
 
-ROLLING_WINDOW_SHORT = 7
-ROLLING_WINDOW_LONG = 30
-DEFAULT_LAG = 1
+# Used by SimulationEngine._validate_percentage() — a "decrease"
+# percentage above this value would produce negative rainfall.
+MAX_RAINFALL_DECREASE_PERCENTAGE: float = 100.0
 
-# ==========================================================
-# Simulation Defaults
-# ==========================================================
+# ------------------------------------------------------------------
+# Logging configuration
+# ------------------------------------------------------------------
 
-DEFAULT_INCREASE_PERCENT = 10.0
-DEFAULT_DECREASE_PERCENT = 10.0
-
-HEAVY_RAIN_THRESHOLD = 100.0
-
-# ==========================================================
-# Application Metadata
-# ==========================================================
-
-PROJECT_NAME = "AI Digital Twin"
-
-VERSION = "1.0.0"
+LOG_LEVEL: int = logging.INFO
+LOG_FORMAT: str = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+LOG_DATE_FORMAT: str = "%Y-%m-%d %H:%M:%S"

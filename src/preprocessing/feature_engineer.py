@@ -12,6 +12,12 @@ from pathlib import Path
 
 import xarray as xr
 
+from config.settings import (
+    LAG_FEATURE_DAYS,
+    RAINFALL_VARIABLE_NAME,
+    ROLLING_AVERAGE_LONG_WINDOW,
+    ROLLING_AVERAGE_SHORT_WINDOW,
+)
 from src.exceptions import DatasetSaveError, DatasetSchemaError
 from src.utils.logger import get_logger
 
@@ -39,7 +45,7 @@ class FeatureEngineer:
         Initialize the engineer with a (cleaned) dataset.
 
         Args:
-            dataset: An xarray Dataset containing a "RAINFALL" data
+            dataset: An xarray Dataset containing the rainfall data
                 variable indexed along a "TIME" dimension. A copy is
                 made immediately so the caller's original dataset is
                 left untouched.
@@ -48,7 +54,7 @@ class FeatureEngineer:
 
     def _get_rainfall(self) -> xr.DataArray:
         """
-        Retrieve the "RAINFALL" variable, raising a domain-specific
+        Retrieve the rainfall variable, raising a domain-specific
         exception if it's missing.
 
         Shared by every add_*() method below, so the same
@@ -56,17 +62,21 @@ class FeatureEngineer:
         times.
 
         Returns:
-            xr.DataArray: The RAINFALL data variable.
+            xr.DataArray: The rainfall data variable.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" is not present.
+            DatasetSchemaError: If the rainfall variable is not
+                present.
         """
         try:
-            return self.ds["RAINFALL"]
+            return self.ds[RAINFALL_VARIABLE_NAME]
         except KeyError as exc:
-            logger.error("Dataset is missing the 'RAINFALL' variable")
+            logger.error(
+                f"Dataset is missing the {RAINFALL_VARIABLE_NAME!r} variable"
+            )
             raise DatasetSchemaError(
-                "Dataset is missing the required 'RAINFALL' variable."
+                f"Dataset is missing the required "
+                f"{RAINFALL_VARIABLE_NAME!r} variable."
             ) from exc
 
     def add_cumulative_rainfall(self) -> None:
@@ -79,8 +89,8 @@ class FeatureEngineer:
             variable; use get_dataset() to retrieve the result.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
-                is not present in the dataset.
+            DatasetSchemaError: If the rainfall variable or the
+                "TIME" dimension is not present in the dataset.
         """
         logger.info("Adding feature: CUMULATIVE_RAINFALL")
 
@@ -97,93 +107,104 @@ class FeatureEngineer:
 
         logger.info("CUMULATIVE_RAINFALL added successfully")
 
-    def add_7day_average(self) -> None:
+    def add_short_window_average(self) -> None:
         """
-        Add a "RAINFALL_7DAY_AVG" variable: a 7-day rolling mean of
-        rainfall along TIME.
+        Add a rolling mean of rainfall along TIME, using a window of
+        config.settings.ROLLING_AVERAGE_SHORT_WINDOW days (7 by
+        default). The resulting variable is named
+        "RAINFALL_{window}DAY_AVG", e.g. "RAINFALL_7DAY_AVG".
 
         min_periods=1 means the average is computed even near the
-        start of the series, using however many days are available
-        (e.g. the average for day 1 is just day 1's value, day 2 is
-        the mean of days 1-2, etc.) rather than producing NaN until
-        a full 7-day window exists.
+        start of the series, using however many days are available,
+        rather than producing NaN until a full window exists.
 
         Returns:
             None. Mutates self.ds in place.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
-                is not present in the dataset.
+            DatasetSchemaError: If the rainfall variable or the
+                "TIME" dimension is not present in the dataset.
         """
-        logger.info("Adding feature: RAINFALL_7DAY_AVG")
+        window = ROLLING_AVERAGE_SHORT_WINDOW
+        variable_name = f"RAINFALL_{window}DAY_AVG"
+
+        logger.info(f"Adding feature: {variable_name}")
 
         rainfall = self._get_rainfall()
 
         try:
-            self.ds["RAINFALL_7DAY_AVG"] = (
-                rainfall.rolling(TIME=7, min_periods=1).mean()
+            self.ds[variable_name] = (
+                rainfall.rolling(TIME=window, min_periods=1).mean()
             )
         except ValueError as exc:
-            logger.error(f"Failed to compute 7-day average: {exc}")
+            logger.error(f"Failed to compute {window}-day average: {exc}")
             raise DatasetSchemaError(
                 f"Dataset is missing the 'TIME' dimension required "
-                f"for the 7-day rolling average: {exc}"
+                f"for the {window}-day rolling average: {exc}"
             ) from exc
 
-        logger.info("RAINFALL_7DAY_AVG added successfully")
+        logger.info(f"{variable_name} added successfully")
 
-    def add_30day_average(self) -> None:
+    def add_long_window_average(self) -> None:
         """
-        Add a "RAINFALL_30DAY_AVG" variable: a 30-day rolling mean of
-        rainfall along TIME. See add_7day_average() for the meaning
-        of min_periods=1.
+        Add a rolling mean of rainfall along TIME, using a window of
+        config.settings.ROLLING_AVERAGE_LONG_WINDOW days (30 by
+        default). The resulting variable is named
+        "RAINFALL_{window}DAY_AVG", e.g. "RAINFALL_30DAY_AVG".
+
+        See add_short_window_average() for the meaning of
+        min_periods=1.
 
         Returns:
             None. Mutates self.ds in place.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
-                is not present in the dataset.
+            DatasetSchemaError: If the rainfall variable or the
+                "TIME" dimension is not present in the dataset.
         """
-        logger.info("Adding feature: RAINFALL_30DAY_AVG")
+        window = ROLLING_AVERAGE_LONG_WINDOW
+        variable_name = f"RAINFALL_{window}DAY_AVG"
+
+        logger.info(f"Adding feature: {variable_name}")
 
         rainfall = self._get_rainfall()
 
         try:
-            self.ds["RAINFALL_30DAY_AVG"] = (
-                rainfall.rolling(TIME=30, min_periods=1).mean()
+            self.ds[variable_name] = (
+                rainfall.rolling(TIME=window, min_periods=1).mean()
             )
         except ValueError as exc:
-            logger.error(f"Failed to compute 30-day average: {exc}")
+            logger.error(f"Failed to compute {window}-day average: {exc}")
             raise DatasetSchemaError(
                 f"Dataset is missing the 'TIME' dimension required "
-                f"for the 30-day rolling average: {exc}"
+                f"for the {window}-day rolling average: {exc}"
             ) from exc
 
-        logger.info("RAINFALL_30DAY_AVG added successfully")
+        logger.info(f"{variable_name} added successfully")
 
     def add_lag_feature(self) -> None:
         """
         Add a "PREVIOUS_DAY_RAINFALL" variable: each time step's
-        rainfall value shifted forward by one day, so that at time t
-        this variable holds the rainfall value from time t-1.
+        rainfall value shifted forward by config.settings.
+        LAG_FEATURE_DAYS days (1 by default), so that at time t this
+        variable holds the rainfall value from time t-1.
 
-        The first time step will have a missing (NaN) value here,
-        since there is no prior day to reference.
+        The first LAG_FEATURE_DAYS time step(s) will have a missing
+        (NaN) value here, since there is no prior data to reference.
 
         Returns:
             None. Mutates self.ds in place.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" or the "TIME" dimension
-                is not present in the dataset.
+            DatasetSchemaError: If the rainfall variable or the
+                "TIME" dimension is not present in the dataset.
         """
         logger.info("Adding feature: PREVIOUS_DAY_RAINFALL")
 
         rainfall = self._get_rainfall()
 
         try:
-            self.ds["PREVIOUS_DAY_RAINFALL"] = rainfall.shift(TIME=1)
+            self.ds["PREVIOUS_DAY_RAINFALL"] = rainfall.shift(TIME=LAG_FEATURE_DAYS)
         except ValueError as exc:
             logger.error(f"Failed to compute lag feature: {exc}")
             raise DatasetSchemaError(

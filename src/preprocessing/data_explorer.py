@@ -10,7 +10,14 @@ from self.ds and never writes to it.
 
 import xarray as xr
 
+from config.settings import (
+    LATITUDE_ALIASES,
+    LONGITUDE_ALIASES,
+    RAINFALL_VARIABLE_NAME,
+    TIME_ALIASES,
+)
 from src.exceptions import DatasetSchemaError
+from src.utils.coordinates import find_coordinate
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -22,9 +29,7 @@ class DataExplorer:
 
     Single Responsibility:
         Describe the dataset to a human (via console output). This
-        class does not clean, validate, or transform data — that's
-        DataCleaner's job. DataExplorer exists purely so a developer
-        can quickly sanity-check a dataset after loading it.
+        class does not clean, validate, or transform data.
 
     Attributes:
         ds (xr.Dataset): The rainfall dataset being explored.
@@ -35,9 +40,9 @@ class DataExplorer:
         Initialize the explorer with a dataset to inspect.
 
         Args:
-            dataset: An xarray Dataset containing at minimum a
-                "RAINFALL" data variable with TIME, LATITUDE, and
-                LONGITUDE dimensions.
+            dataset: An xarray Dataset containing the rainfall data
+                variable with latitude, longitude, and time
+                coordinates (naming auto-detected).
         """
         self.ds: xr.Dataset = dataset
 
@@ -51,37 +56,36 @@ class DataExplorer:
             - Minimum, maximum, and average rainfall (in mm)
 
         Returns:
-            None. This method is for console output / diagnostics
-            only — it does not return the computed statistics. If a
-            caller needs the actual numbers programmatically, this
-            method should be split into a version that returns a
-            dict/dataclass in a future refactor.
+            None. Console output only.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL", "TIME", "LATITUDE", or
-                "LONGITUDE" are not present in the dataset.
+            DatasetSchemaError: If the rainfall variable, or a
+                recognizable latitude/longitude/time coordinate, is
+                not present in the dataset.
         """
         logger.info("Generating dataset summary")
 
         try:
-            rainfall: xr.DataArray = self.ds["RAINFALL"]
-        except KeyError as exc:
-            logger.error("Dataset is missing the 'RAINFALL' variable")
-            raise DatasetSchemaError(
-                "Dataset is missing the required 'RAINFALL' variable."
-            ) from exc
-
-        try:
-            time_steps = rainfall.sizes["TIME"]
-            lat_steps = rainfall.sizes["LATITUDE"]
-            lon_steps = rainfall.sizes["LONGITUDE"]
+            rainfall: xr.DataArray = self.ds[RAINFALL_VARIABLE_NAME]
         except KeyError as exc:
             logger.error(
-                f"Dataset is missing an expected dimension: {exc}"
+                f"Dataset is missing the {RAINFALL_VARIABLE_NAME!r} variable"
             )
             raise DatasetSchemaError(
-                f"Dataset is missing an expected dimension: {exc}"
+                f"Dataset is missing the required "
+                f"{RAINFALL_VARIABLE_NAME!r} variable."
             ) from exc
+
+        # find_coordinate() already raises CoordinateNotFoundError
+        # (a DatasetSchemaError subclass) on its own — no need to
+        # wrap it again here.
+        time_name = find_coordinate(self.ds, TIME_ALIASES)
+        lat_name = find_coordinate(self.ds, LATITUDE_ALIASES)
+        lon_name = find_coordinate(self.ds, LONGITUDE_ALIASES)
+
+        time_steps = rainfall.sizes[time_name]
+        lat_steps = rainfall.sizes[lat_name]
+        lon_steps = rainfall.sizes[lon_name]
 
         print("=" * 50)
         print("IMD DATASET SUMMARY")
@@ -94,7 +98,7 @@ class DataExplorer:
         print()
 
         print("Date Range")
-        print(self.ds.TIME.values[0], "to", self.ds.TIME.values[-1])
+        print(self.ds[time_name].values[0], "to", self.ds[time_name].values[-1])
 
         print()
 

@@ -11,8 +11,6 @@ code review); it now lives here as the single implementation both
 classes call.
 """
 
-from typing import List
-
 import xarray as xr
 
 from src.exceptions import CoordinateNotFoundError
@@ -21,7 +19,7 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def find_coordinate(dataset: xr.Dataset, possible_names: List[str]) -> str:
+def find_coordinate(dataset: xr.Dataset, possible_names: list[str]) -> str:
     """
     Find which of several possible coordinate names is actually
     present in a dataset.
@@ -30,6 +28,9 @@ def find_coordinate(dataset: xr.Dataset, possible_names: List[str]) -> str:
         dataset: The xarray Dataset to search.
         possible_names: Candidate coordinate names to check, in
             priority order. The first match found is returned.
+            Callers typically pass one of the *_ALIASES constants
+            from config/settings.py (e.g. LATITUDE_ALIASES) rather
+            than writing out a literal list.
 
     Returns:
         str: The matching coordinate name, exactly as it appears in

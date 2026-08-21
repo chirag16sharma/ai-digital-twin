@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
+from config.settings import RAINFALL_VARIABLE_NAME
 from src.exceptions import DatasetSaveError, DatasetSchemaError
 from src.utils.logger import get_logger
 
@@ -31,8 +32,6 @@ class DataCleaner:
 
     Attributes:
         ds (xr.Dataset): A working copy of the dataset being cleaned.
-            A copy is taken at construction time so cleaning never
-            mutates the dataset the caller originally passed in.
     """
 
     def __init__(self, dataset: xr.Dataset) -> None:
@@ -40,7 +39,7 @@ class DataCleaner:
         Initialize the cleaner with a dataset to clean.
 
         Args:
-            dataset: An xarray Dataset containing a "RAINFALL" data
+            dataset: An xarray Dataset containing the rainfall data
                 variable. A copy is made immediately so the caller's
                 original dataset is left untouched.
         """
@@ -48,44 +47,37 @@ class DataCleaner:
 
     def _get_rainfall(self) -> xr.DataArray:
         """
-        Retrieve the "RAINFALL" variable, raising a domain-specific
+        Retrieve the rainfall variable, raising a domain-specific
         exception if it's missing.
 
-        This exists to avoid repeating the same try/except KeyError
-        block in quality_report(), clean(), and any future method
-        that needs to access RAINFALL.
-
         Returns:
-            xr.DataArray: The RAINFALL data variable.
+            xr.DataArray: The rainfall data variable.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" is not present.
+            DatasetSchemaError: If the rainfall variable is not
+                present.
         """
         try:
-            return self.ds["RAINFALL"]
+            return self.ds[RAINFALL_VARIABLE_NAME]
         except KeyError as exc:
-            logger.error("Dataset is missing the 'RAINFALL' variable")
+            logger.error(
+                f"Dataset is missing the {RAINFALL_VARIABLE_NAME!r} variable"
+            )
             raise DatasetSchemaError(
-                "Dataset is missing the required 'RAINFALL' variable."
+                f"Dataset is missing the required "
+                f"{RAINFALL_VARIABLE_NAME!r} variable."
             ) from exc
 
     def quality_report(self) -> None:
         """
         Print a report on data quality issues found in the dataset.
 
-        Reports:
-            - Total number of rainfall values
-            - Count of missing (NaN) values
-            - Count of negative (physically invalid) rainfall values
-
         Returns:
-            None. Console output only — see the note in DataExplorer
-            about eventually returning these as structured data
-            (e.g. a dict) for programmatic use / testing.
+            None. Console output only.
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" is not present in the
-                dataset.
+            DatasetSchemaError: If the rainfall variable is not
+                present in the dataset.
         """
         logger.info("Generating data quality report")
 
@@ -123,25 +115,19 @@ class DataCleaner:
 
     def clean(self) -> xr.Dataset:
         """
-        Clean the rainfall data in place (on the internal copy) and
-        return the cleaned dataset.
+        Clean the rainfall data in place and return the cleaned
+        dataset.
 
         Cleaning rules:
-            - Negative rainfall values are physically invalid
-              (rainfall cannot be less than 0mm) and are replaced
-              with 0.
-            - Missing (NaN) values are filled with 0, treating a
-              missing reading as "no rainfall recorded."
+            - Negative rainfall values are replaced with 0.
+            - Missing (NaN) values are filled with 0.
 
         Returns:
-            xr.Dataset: The cleaned dataset (self.ds, after cleaning).
-                Note this is the same object as self.ds, not a new
-                copy — callers who need to keep an uncleaned reference
-                should hold onto their own copy before calling clean().
+            xr.Dataset: The cleaned dataset (self.ds, same object).
 
         Raises:
-            DatasetSchemaError: If "RAINFALL" is not present in the
-                dataset.
+            DatasetSchemaError: If the rainfall variable is not
+                present in the dataset.
         """
         logger.info("Cleaning dataset")
 
@@ -153,7 +139,7 @@ class DataCleaner:
         rainfall = rainfall.where(rainfall >= 0, 0)
         rainfall = rainfall.fillna(0)
 
-        self.ds["RAINFALL"] = rainfall
+        self.ds[RAINFALL_VARIABLE_NAME] = rainfall
 
         logger.info(
             f"Cleaning complete. "
@@ -168,16 +154,13 @@ class DataCleaner:
         Save the (cleaned) dataset to disk as a NetCDF file.
 
         Args:
-            output_path: Destination path for the .nc file, as a
-                string or Path object. Parent directories are not
-                created automatically — they must already exist.
+            output_path: Destination path for the .nc file.
 
         Returns:
             None.
 
         Raises:
-            DatasetSaveError: If the file cannot be written — e.g.
-                the parent directory of output_path does not exist.
+            DatasetSaveError: If the file cannot be written.
         """
         output_path = Path(output_path)
 
