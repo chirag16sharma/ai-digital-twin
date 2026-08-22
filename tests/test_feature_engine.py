@@ -288,3 +288,57 @@ class TestSave:
 
         with pytest.raises(DatasetSaveError):
             engineer.save(bad_path)
+
+@pytest.fixture
+def dataset_with_rainfall_but_no_time_dim() -> xr.Dataset:
+    """
+    RAINFALL exists, but indexed by 'X' instead of 'TIME' — so
+    _get_rainfall() succeeds, but any operation requiring the TIME
+    dimension (cumsum, rolling, shift) fails with ValueError. Used to
+    test each add_*() method's second, previously-untested failure
+    mode (as opposed to a missing RAINFALL variable entirely).
+    """
+    return xr.Dataset(
+        data_vars={
+            "RAINFALL": (["X"], np.array([1.0, 2.0, 3.0])),
+        },
+        coords={"X": np.array([0, 1, 2])},
+    )
+
+class TestMissingTimeDimension:
+    """
+    Tests the second failure mode in each add_*() method: RAINFALL is
+    present, but there's no TIME dimension to operate along.
+    """
+
+    def test_add_cumulative_rainfall_raises_when_time_dim_missing(
+        self, dataset_with_rainfall_but_no_time_dim
+    ):
+        engineer = FeatureEngineer(dataset_with_rainfall_but_no_time_dim)
+
+        with pytest.raises(DatasetSchemaError):
+            engineer.add_cumulative_rainfall()
+
+    def test_add_short_window_average_raises_when_time_dim_missing(
+        self, dataset_with_rainfall_but_no_time_dim
+    ):
+        engineer = FeatureEngineer(dataset_with_rainfall_but_no_time_dim)
+
+        with pytest.raises(DatasetSchemaError):
+            engineer.add_short_window_average()
+
+    def test_add_long_window_average_raises_when_time_dim_missing(
+        self, dataset_with_rainfall_but_no_time_dim
+    ):
+        engineer = FeatureEngineer(dataset_with_rainfall_but_no_time_dim)
+
+        with pytest.raises(DatasetSchemaError):
+            engineer.add_long_window_average()
+
+    def test_add_lag_feature_raises_when_time_dim_missing(
+        self, dataset_with_rainfall_but_no_time_dim
+    ):
+        engineer = FeatureEngineer(dataset_with_rainfall_but_no_time_dim)
+
+        with pytest.raises(DatasetSchemaError):
+            engineer.add_lag_feature()

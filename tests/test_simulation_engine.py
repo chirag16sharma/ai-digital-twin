@@ -274,8 +274,23 @@ class TestHeavyRainfall:
 
         with pytest.raises(SimulationError):
             engine.heavy_rainfall("2025-07-01", "2025-07-02", multiplier=-1.0)
+    def test_raises_dataset_schema_error_when_rainfall_missing(self):
+        """
+        A dataset with a TIME coordinate but no RAINFALL variable.
+        Mirrors the equivalent test for dry_spell() — closes the
+        coverage gap in heavy_rainfall()'s except KeyError block.
+        """
+        import numpy as np
+        import xarray as xr
 
+        dataset = xr.Dataset(
+            coords={"TIME": np.array(["2025-07-01"], dtype="datetime64[ns]")}
+        )
+        engine = SimulationEngine(dataset, time_name="TIME")
 
+        with pytest.raises(DatasetSchemaError):
+            engine.heavy_rainfall("2025-07-01", "2025-07-01", multiplier=2.0)
+            
 class TestGetDataset:
     """Tests for get_dataset()."""
 

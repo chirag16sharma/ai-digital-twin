@@ -231,3 +231,45 @@ class TestGetDateRange:
         result = engine.get_date_range("2099-01-01", "2099-01-05")
 
         assert result.sizes["TIME"] == 0
+        
+    class TestAvailableDates:
+        """Tests for available_dates() — console output only."""
+
+    def test_prints_date_range_and_day_count(
+        self, synthetic_rainfall_dataset, capsys
+    ):
+        """
+        No test previously called this method (confirmed via the
+        Day 5 coverage report) — it prints first_date(), last_date(),
+        and number_of_days().
+        """
+        engine = TemporalEngine(synthetic_rainfall_dataset)
+
+        engine.available_dates()
+
+        captured = capsys.readouterr()
+        assert "2025-07-01" in captured.out
+        assert "2025-07-05" in captured.out
+        assert "Total Days : 5" in captured.out
+
+
+class TestGetDateRangeSchemaError:
+    """
+    get_date() already had a DatasetSchemaError test for a missing
+    RAINFALL variable; get_date_range() did not (confirmed via the
+    Day 5 coverage report) — closing that gap here.
+    """
+
+    def test_raises_dataset_schema_error_when_rainfall_missing(self):
+        """A dataset with a TIME coordinate but no RAINFALL variable."""
+        dataset = xr.Dataset(
+            coords={
+                "TIME": np.array(
+                    ["2025-07-01", "2025-07-02"], dtype="datetime64[ns]"
+                ),
+            }
+        )
+        engine = TemporalEngine(dataset)
+
+        with pytest.raises(DatasetSchemaError):
+            engine.get_date_range("2025-07-01", "2025-07-02")

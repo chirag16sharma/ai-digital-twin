@@ -154,13 +154,21 @@ class DataCleaner:
         Save the (cleaned) dataset to disk as a NetCDF file.
 
         Args:
-            output_path: Destination path for the .nc file.
+            output_path: Destination path for the .nc file, as a
+                string or Path object. Parent directories are not
+                created automatically — they must already exist.
 
         Returns:
             None.
 
         Raises:
-            DatasetSaveError: If the file cannot be written.
+            DatasetSaveError: If the file cannot be written — e.g.
+                the parent directory of output_path does not exist.
+                Catches OSError broadly rather than FileNotFoundError
+                specifically, since the exact exception type is
+                platform-dependent (PermissionError on Windows,
+                FileNotFoundError on Linux, for the same underlying
+                problem) — both are OSError subclasses.
         """
         output_path = Path(output_path)
 
@@ -168,7 +176,7 @@ class DataCleaner:
 
         try:
             self.ds.to_netcdf(output_path)
-        except FileNotFoundError as exc:
+        except OSError as exc:
             logger.error(f"Failed to save dataset to {output_path}: {exc}")
             raise DatasetSaveError(
                 f"Could not save dataset to {output_path} — "

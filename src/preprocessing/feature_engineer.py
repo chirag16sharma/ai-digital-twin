@@ -123,7 +123,12 @@ class FeatureEngineer:
 
         Raises:
             DatasetSchemaError: If the rainfall variable or the
-                "TIME" dimension is not present in the dataset.
+                "TIME" dimension is not present in the dataset. Note:
+                xarray's .rolling() raises KeyError (not ValueError)
+                for a missing dimension — different from .cumsum()
+                and .shift(), which raise ValueError for the same
+                conceptual failure. Confirmed via test failure during
+                Day 5 coverage work.
         """
         window = ROLLING_AVERAGE_SHORT_WINDOW
         variable_name = f"RAINFALL_{window}DAY_AVG"
@@ -136,7 +141,7 @@ class FeatureEngineer:
             self.ds[variable_name] = (
                 rainfall.rolling(TIME=window, min_periods=1).mean()
             )
-        except ValueError as exc:
+        except KeyError as exc:
             logger.error(f"Failed to compute {window}-day average: {exc}")
             raise DatasetSchemaError(
                 f"Dataset is missing the 'TIME' dimension required "
@@ -160,7 +165,10 @@ class FeatureEngineer:
 
         Raises:
             DatasetSchemaError: If the rainfall variable or the
-                "TIME" dimension is not present in the dataset.
+                "TIME" dimension is not present in the dataset. Note:
+                xarray's .rolling() raises KeyError (not ValueError)
+                for a missing dimension — see
+                add_short_window_average()'s docstring for details.
         """
         window = ROLLING_AVERAGE_LONG_WINDOW
         variable_name = f"RAINFALL_{window}DAY_AVG"
@@ -173,7 +181,7 @@ class FeatureEngineer:
             self.ds[variable_name] = (
                 rainfall.rolling(TIME=window, min_periods=1).mean()
             )
-        except ValueError as exc:
+        except KeyError as exc:
             logger.error(f"Failed to compute {window}-day average: {exc}")
             raise DatasetSchemaError(
                 f"Dataset is missing the 'TIME' dimension required "
@@ -246,7 +254,7 @@ class FeatureEngineer:
 
         try:
             self.ds.to_netcdf(output_path)
-        except FileNotFoundError as exc:
+        except OSError as exc:
             logger.error(f"Failed to save dataset to {output_path}: {exc}")
             raise DatasetSaveError(
                 f"Could not save dataset to {output_path} — "

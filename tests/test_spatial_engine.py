@@ -264,3 +264,27 @@ class TestRainfallOnDate:
 
         with pytest.raises(InvalidDateError):
             engine.rainfall_on_date(10.0, 75.0, "2099-01-01")
+            
+    class TestAvailableCoordinates:
+
+        """Tests for available_coordinates() — console output only."""
+
+    def test_prints_latitude_and_longitude_ranges(
+        self, synthetic_rainfall_dataset, capsys
+    ):
+        """
+        No test previously called this method at all (confirmed via
+        the Day 5 coverage report) — it prints the min/max of both
+        latitude and longitude.
+        """
+        engine = SpatialEngine(synthetic_rainfall_dataset)
+
+        engine.available_coordinates()
+
+        captured = capsys.readouterr()
+        assert "Latitude" in captured.out
+        assert "10.0" in captured.out
+        assert "10.5" in captured.out
+        assert "Longitude" in captured.out
+        assert "75.0" in captured.out
+        assert "75.5" in captured.out
