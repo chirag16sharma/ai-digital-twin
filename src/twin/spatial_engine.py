@@ -13,11 +13,10 @@ import numpy as np
 import xarray as xr
 
 from config.settings import LATITUDE_ALIASES, LONGITUDE_ALIASES, RAINFALL_VARIABLE_NAME, TIME_ALIASES
-from src.exceptions import DatasetSchemaError, InvalidCoordinateError
+from src.exceptions import DatasetSchemaError, InvalidCoordinateError, InvalidDateError
 from src.utils.coordinates import find_coordinate
 from src.utils.logger import get_logger
-
-logger = get_logger(__name__)
+logger = get_logger(__name__) 
 
 
 class SpatialEngine:
@@ -283,9 +282,14 @@ class SpatialEngine:
         Raises:
             InvalidCoordinateError: If latitude or longitude is
                 outside the dataset's coverage range.
-            DatasetSchemaError: If the rainfall variable is missing,
-                or if `date` does not exist in the dataset's TIME
-                coordinate.
+            DatasetSchemaError: If the rainfall variable is missing.
+            InvalidDateError: If `date` does not exist in the
+                dataset's TIME coordinate. Previously raised as
+                DatasetSchemaError (a schema-level error) — fixed to
+                use InvalidDateError, matching
+                TemporalEngine.get_date()'s handling of the same
+                conceptual failure (a bad date is a bad-input
+                problem, not a dataset-schema problem).
         """
         rainfall = self.rainfall_at(latitude, longitude)
 
@@ -297,6 +301,6 @@ class SpatialEngine:
             )
         except KeyError as exc:
             logger.error(f"Date {date!r} not found in dataset TIME coordinate")
-            raise DatasetSchemaError(
+            raise InvalidDateError(
                 f"Date {date!r} not found in dataset."
             ) from exc

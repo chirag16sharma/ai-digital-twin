@@ -10,10 +10,8 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from src.exceptions import CoordinateNotFoundError, DatasetSchemaError, InvalidCoordinateError
-from src.twin.spatial_engine import SpatialEngine
-
-
+from src.exceptions import CoordinateNotFoundError, DatasetSchemaError, InvalidCoordinateError, InvalidDateError
+from src.twin.spatial_engine import SpatialEngine   
 class TestSpatialEngineConstruction:
     """Tests for SpatialEngine.__init__ and coordinate auto-detection."""
 
@@ -252,18 +250,17 @@ class TestRainfallOnDate:
 
         assert float(result.values) == pytest.approx(20.0)
 
-    def test_raises_dataset_schema_error_for_unknown_date(
+    def test_raises_invalid_date_error_for_unknown_date(
         self, synthetic_rainfall_dataset
     ):
         """
         Requesting a date outside the fixture's range (2025-07-01
-        through 2025-07-05) should raise DatasetSchemaError, since
-        rainfall_on_date's .sel() call isn't wrapped with the more
-        specific InvalidDateError (that distinction lives in
-        TemporalEngine, not SpatialEngine — see the docstring note
-        on rainfall_on_date about this being schema-level here).
+        through 2025-07-05) should raise InvalidDateError — this now
+        matches TemporalEngine.get_date()'s behavior for the same
+        conceptual failure, after the Day 5 fix to
+        SpatialEngine.rainfall_on_date().
         """
         engine = SpatialEngine(synthetic_rainfall_dataset)
 
-        with pytest.raises(DatasetSchemaError):
+        with pytest.raises(InvalidDateError):
             engine.rainfall_on_date(10.0, 75.0, "2099-01-01")

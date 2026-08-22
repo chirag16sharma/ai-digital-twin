@@ -192,15 +192,11 @@ class StateManager:
     def clear_state(self) -> None:
         """
         Reset the Digital Twin's state back to its initial (all None)
-        values.
-
-        Note: unlike the other setters, clear_state() does NOT call
-        _update_timestamp() — last_updated is reset to None along
-        with everything else, rather than being stamped with the
-        reset time. This is a deliberate difference from set_*() and
-        update_state(), worth keeping in mind if code elsewhere
-        assumes last_updated is always a datetime after any state
-        change.
+        values, except last_updated, which is still stamped with the
+        current time — clearing the state IS a modification, and
+        this keeps last_updated consistent with every other mutating
+        method (previously it was reset to None as well; changed on
+        Day 5 for consistency).
 
         Returns:
             None.
@@ -213,7 +209,9 @@ class StateManager:
             "last_updated": None
         }
 
-        logger.info("State cleared — reset to initial (all None) values")
+        self._update_timestamp()
+
+        logger.info("State cleared — reset to initial (all None) values)")
 
     def display_state(self) -> None:
         """
